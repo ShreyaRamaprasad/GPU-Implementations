@@ -1,0 +1,356 @@
+#include <iostream>
+#include <stdio.h>
+#include <stdlib.h>
+#include <cstdlib>
+#include <stdbool.h>
+#include <queue>
+#include <ctime>
+#include "kernels.cuh"
+#define H_max 1000
+
+using namespace std;
+/* Reads an .ac file by argument and calculates the circuit output and 
+ * partial derivatives for every node.
+ * The circuit is stored in an adjacency list.
+ * Each non-leaf node storess its children in a separate array.
+ */
+
+/* Node Structure
+   Children and flag only apply to non-leaf nodes*/
+struct node {
+  /*Node type can be 'n' or 'v' for leaf nodes
+    Node type can be '+' or '-' for non-leaf nodes */
+  char nodeType; 
+  /*Node index, e.g. "Third variable: n=2*/
+  int index;
+  /*Value of the node*/
+  double vr; 
+  /*Derivative of the node*/
+  double dr; 
+  /*Children nodes*/
+  /*Currently assumes a binary AC (only two children per node)*/
+  //struct node **child;
+  int child[2];
+  /*Bit flag, true means there is exactly one child that is zero*/
+  bool flag;
+  /*Zero counter, if this counter is 1, set flag to true*/
+  /*Currently not used (assuming binary AC structure)*/
+  //int counter;
+};
+
+int h;
+int *num;
+
+// index is the number nodes: final value has the Root
+struct node** levelOrder(struct node** circuit, int index){
+  queue<int> q;
+  q.push(index);
+  printf("value of index is %d\n",index);
+  struct node** result_circuit;
+  result_circuit = (struct node**)malloc(sizeof(struct node*) * (index+1));
+  struct node *current = (struct node*)malloc(sizeof(struct node));
+
+  int map[index+1];
+  for (int i=0; i<index+1; i++){
+    map[i] = -1;
+  }
+  //bool inserted = false;
+
+  int i = 0;
+  while(1){
+    int nodeCount = q.size();
+    //printf("value of nodeCount is %d\n", nodeCount);
+
+    if(nodeCount == 0)
+      break;
+
+    num[h++] = nodeCount;
+    while(nodeCount > 0){
+      //inserted = false;
+      current = circuit[q.front()];
+      if(map[q.front()]==-1) {
+         result_circuit[i++] = current;
+         map[q.front()] = i-1;
+      }
+         //inserted = true;
+/*
+         if(current->child[0]!=-1){
+            result_circuit[i-1]->child[0] = i+q.size();
+            if(current->child[1]!=-1)
+               result_circuit[i-1]->child[1] = i+q.size()+1;
+         }
+         else if(current->child[1]!=-1) {
+            result_circuit[i-1]->child[1] = i+q.size();
+        }*/
+
+      //}
+
+
+
+     // else {
+
+       // printf("CAME HERE\n");
+     // }
+
+
+
+      q.pop();
+      if(current->child[0]!=-1){
+        q.push(current->child[0]);
+      }
+      if(current->child[1]!=-1){
+        q.push(current->child[1]);
+      }
+      nodeCount--;
+    }
+  }
+
+  for (int i=0;i<=index;i++){
+     result_circuit[i]->child[0] = result_circuit[i]->child[0]==-1 ? -1 : map[result_circuit[i]->child[0]];
+     result_circuit[i]->child[1] =  result_circuit[i]->child[1]==-1 ? -1 : map[result_circuit[i]->child[1]];
+     //printf("value of i is %d and the child[1] id is %d and the node type is %c\n",i,result_circuit[i]->child[1], result_circuit[i]->nodeType);
+  }
+
+  return result_circuit; 
+
+}
+
+
+
+int main(int argc, char** argv) {
+  FILE *ac_file;
+  char lineToRead[5000]; 
+  struct node **circuit;
+  struct node *n;
+  int index = 0;
+  
+  /*Try to open the AC file*/
+  if (argc < 2) {
+    /*No file has been passed - error*/
+    fprintf(stderr, "Must pass AC file\n");
+    return(EXIT_FAILURE);
+  }
+    
+  ac_file = fopen(argv[1], "r");
+    
+  if (!ac_file) {
+    /* File does not exist*/
+    fprintf(stderr, "Unable to read file %s\n", argv[1]);
+    return(EXIT_FAILURE);
+  }
+    
+  /*File was successfully read*/
+  while (fgets(lineToRead, 5000, ac_file) != NULL) {
+    //printf("%s", lineToRead);
+        
+    if (*lineToRead == '(') {
+      printf("\t... reading file ...\n");
+      /*Allocate memory for the circuit*/
+      circuit = (struct node**)malloc(sizeof(struct node*) * 1000);
+    }
+    else if (*lineToRead == 'E'){
+      printf("\t... done reading file ... \n");
+      index--;
+      n->dr = 1;
+    }
+    else{
+      if (*lineToRead == 'n') {
+	/*Leaf node (Constant)*/
+	/*Insert node into circuit*/
+	n = (struct node*)malloc(sizeof(struct node));
+	sscanf(lineToRead, "%s %lf", &(n->nodeType), &(n->vr));
+	n->dr = 0;
+	n->flag = false;
+        n->child[0] = -1;
+        n->child[1] = -1;
+      }
+      else if (*lineToRead == 'v') {
+	/*Leaf node (Variable)*/
+	n = (struct node*)malloc(sizeof(struct node));
+	sscanf(lineToRead, "%s %d %lf", &(n->nodeType), &(n->index), &(n->vr));
+	n->dr = 0;
+	n->flag = false;
+        n->child[0] = -1;
+        n->child[1] = -1;
+      }
+      else if (*lineToRead == '+') {
+	/*Non-leaf (Operation)*/
+	n = (struct node*)malloc(sizeof(struct node));
+	/*"n->child" stores the index of the children nodes in the circuit*/
+	sscanf(lineToRead, "%s %d %d", &(n->nodeType), &(n->child[0]), &(n->child[1]));
+	n->flag = false;
+	n->vr = 0;
+	n->dr = 0;
+	
+	/*Only add values if the flag is down*/
+	if (!circuit[n->child[0]]->flag) {
+	  n->vr += circuit[n->child[0]]->vr;
+	}
+	if (!circuit[n->child[1]]->flag) {
+	  n->vr += circuit[n->child[1]]->vr;
+	}
+	/*Incorrect output when using bit flags*/
+	//n->vr = circuit[n->child[0]]->vr + circuit[n->child[1]]->vr;
+      }
+      else if (*lineToRead == '*') {
+	/*Non-leaf (Operation)*/
+	n = (struct node*)malloc(sizeof(struct node));
+	sscanf(lineToRead, "%s %d %d", &(n->nodeType), &(n->child[0]), &(n->child[1]));
+        n->vr = 1;
+	n->dr = 0;
+
+	/*Raise bit flag if there is exactly one child with value equal to 0*/
+	if (circuit[n->child[0]]->vr == 0 && circuit[n->child[1]]->vr != 0) {
+	  n->flag = true;
+	  /*Set value to product of all other non-zero child nodes*/
+	  if (!circuit[n->child[1]]->flag) {
+	    n->vr = circuit[n->child[1]]->vr;
+	  }
+	  else {
+	    n->vr = 0;
+	  }
+	}
+	else if (circuit[n->child[0]]->vr != 0 && circuit[n->child[1]]->vr == 0) {
+	  n->flag = true;
+	  /*Set value to product of all other non-zero child nodes*/
+	  if (!circuit[n->child[0]]->flag) {
+	    n->vr = circuit[n->child[0]]->vr;
+	  }
+	  else {
+	    n->vr = 0;
+	  }
+	}
+	else {
+	  n->flag = false;
+	  if (!circuit[n->child[0]]->flag) {
+	    n->vr *= circuit[n->child[0]]->vr;
+	  }
+	  else {
+	    n->vr = 0;
+	  }
+	  if (!circuit[n->child[1]]->flag) {
+	    n->vr *= circuit[n->child[1]]->vr;
+	  }
+	  else {
+	    n->vr = 0;
+	  }
+	}
+      }
+      //printf("node type: %c, vr: %lf, index: %d, flag %d\n", n->nodeType, n->vr, index, n->flag);
+      circuit[index] = n;
+      index++;   
+    }
+  }
+
+  /*Print out circuit output*/
+  printf("output %lf\n\n", circuit[index]->vr);
+
+  //do level order traversal of this circuit array and write in new memory
+  struct node **circuit_level_order = (struct node**)malloc(sizeof(struct node*) * (index+1));
+  h = 0;
+  num = (int*)malloc(sizeof(int)*H_max);
+  circuit_level_order = levelOrder(circuit, index);
+  free(circuit);
+
+  /*Bit-encoded backpropagation in GPU*/
+  printf("\t... starting backpropagation in gpu...\n");
+
+  //declare variables
+  struct node** h_circuit;
+  struct node** d_circuit;
+
+  //allocate memory
+  h_circuit = (struct node**)malloc(sizeof(struct node*) * (index+1));
+  cudaMalloc((void***)&d_circuit, sizeof(struct node*) * (index+1));
+
+  //fill host with data
+  h_circuit = circuit_level_order;
+
+  //set up timing variables
+  float gpu_elapsed_time;
+  cudaEvent_t gpu_start, gpu_stop;
+  cudaEventCreate(&gpu_start);
+  cudaEventCreate(&gpu_stop);
+
+  //copy from host to device
+  cudaEventRecord(gpu_start,0);
+  cudaMemcpy(d_circuit, h_circuit, sizeof(struct node*)*(index+1), cudaMemcpyHostToDevice);
+
+  //call kernel
+  dim3 gridSize = 256;
+  dim3 blockSize = 256;
+  build_circuit<<< gridSize, blockSize >>>(d_circuit, index+1, h, num);
+
+
+  //copy from device to host
+  cudaMemcpy(h_circuit, d_circuit, sizeof(struct node*)*(index+1), cudaMemcpyDeviceToHost);
+  cudaEventRecord(gpu_stop, 0);
+  cudaEventSynchronize(gpu_stop);
+  cudaEventElapsedTime(&gpu_elapsed_time, gpu_start, gpu_stop);
+  cudaEventDestroy(gpu_start);
+  cudaEventDestroy(gpu_stop);
+
+  //report results
+  cout<<"The gpu took: "<<gpu_elapsed_time<<" milli-seconds"<<std::endl;
+  for (int i = 0; i <= index; i++) {
+    printf("n%d t: %c, dr: %lf vr: %lf\n", i, h_circuit[i]->nodeType, h_circuit[i]->dr, h_circuit[i]->vr);
+  }
+    
+  free(h_circuit);
+
+  /*Bit-encoded backpropagation*/
+  printf("\t... starting backpropagation in cpu...\n");
+  struct node* parent;
+  for (int i = 0; i <= index; i++) {
+    parent = circuit_level_order[i];
+
+    /*Assign dr values depending on parent node*/
+    if (parent->nodeType == '+') {
+      circuit_level_order[parent->child[0]]->dr = parent->dr;
+      circuit_level_order[parent->child[1]]->dr = parent->dr;
+    }
+    else if (parent->nodeType == '*') {
+      /*if bit flag is down, and parent is non-zero, dr(c) = dr(p)*vr(p)/vr(c)*/
+      if (parent->dr == 0) {
+	/*Set all child nodes dr to zero*/
+	circuit_level_order[parent->child[0]]->dr = 0;
+	circuit_level_order[parent->child[1]]->dr = 0;
+      }
+      else if (parent->flag) {
+	/*Check value of all child nodes*/
+	/*if flag is up and child is zero, then dr(c) = dr(p) * vr(p)*/
+	if (circuit_level_order[parent->child[0]]->vr == 0) {
+	  circuit_level_order[parent->child[0]]->dr = parent->dr * parent->vr;
+	  /*Set all other children dr to zero*/
+	  circuit_level_order[parent->child[1]]->dr = 0;
+	}
+	else {
+	  circuit_level_order[parent->child[1]]->dr = 0;
+	  circuit_level_order[parent->child[0]]->dr = parent->dr *
+	    (parent->vr / circuit_level_order[parent->child[0]]->vr);
+	}
+      }
+      else {
+	circuit_level_order[parent->child[1]]->dr = parent->dr *
+	  (parent->vr / circuit_level_order[parent->child[1]]->vr);
+	circuit_level_order[parent->child[0]]->dr = parent->dr *
+	  (parent->vr / circuit_level_order[parent->child[0]]->vr);
+      }
+    }
+  }
+  
+  /*Free all nodes and circuit*/
+  for (int i = 0; i <= index; i++) {
+    printf("n%d t: %c, dr: %lf vr: %lf\n", i, circuit_level_order[i]->nodeType, circuit_level_order[i]->dr, circuit_level_order[i]->vr);
+    //free(circuit_level_order[i]);
+    //free(circuit[i]);
+  }
+    
+  free(circuit_level_order);
+      
+  /*Close file*/
+  fclose(ac_file);
+    
+  return (EXIT_SUCCESS);
+}
+  
